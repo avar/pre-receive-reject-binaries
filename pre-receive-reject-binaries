@@ -1,0 +1,433 @@
+#!/usr/bin/env perl
+use v5.10.0;
+use strict;
+use warnings;
+use Data::Dumper;
+use Getopt::Long qw(GetOptions);
+
+GetOptions(
+    'help|?'      => \my $help,
+    'man'         => \my $man,
+    'dry-run=i'   => \(my $dry_run = 1),
+    'debug=i'     => \(my $debug = 0),
+    'always-fail' => \my $always_fail,
+) or die "Error parsing options";
+
+if ($help or $man) {
+    require Pod::Usage;
+    Pod::Usage::pod2usage(-exitstatus => 0, -verbose => 1) if $help;
+    Pod::Usage::pod2usage(-exitstatus => 0, -verbose => 2) if $man;
+}
+
+my $NAME = 'pre-receive-reject-binaries';
+
+=head1 NAME
+
+pre-receive-reject-binaries - A configurable Git hook to reject binary pushes
+
+=head1 SYNOPSIS
+
+    pre-receive-reject-binaries --help
+    pre-receive-reject-binaries --man
+
+    # To actually make this hook do anything wrap it in a shellscript
+    # that does this
+    pre-receive-reject-binaries --dry-run=0
+
+    # Do whatever we would have done but fail in cases where we'd
+    # succeed, for testing purposes
+    pre-receive-reject-binaries --dry-run=0 --always-fail
+
+=head1 DESCRIPTION
+
+This is a Git hook meant to be set up as a C<pre-receive> hook that'll
+reject the addition of binary data to a repository, either all binary
+additions if they go above a given size.
+
+The general strategy of this hook is that when we get a push for a
+given "master" branch we'll do a C<log --stat># of C<$branch..$to> and
+find all the commits that add binary data, and how much they add.
+
+We then either reject the whole push if a given commit in the push is
+above some configurable limit of how much binary data a given commit
+is allowed to add.
+
+We only care about updates to the "master" branch for two reasons, one
+is that if you're e.g. doing a hackathon and committing some binaries
+to a custom branch temporarily that's fine as long as that branch
+doesn't make it to master, and eventually gets deleted from
+$whatever.git.
+
+The other is that if you don't do this you have to deal with the
+special case of the "from" line being
+0000000000000000000000000000000000000000, i.e. a new ref, whether
+that's a new branch or a new tag. What do you do at that point? Diff
+it against master? Look at all its history? Easier to just not deal
+with it. Want the hook to do something smart about that? Patches
+welcome.
+
+We do handle pushes that have a "from" of
+0000000000000000000000000000000000000000 for the "master" branch
+itself by just validating the entire history being pushed.
+
+=head1 CONFIGURATION
+
+=head2 hook.pre-receive-reject-binaries.master-branch-name
+
+The C<master> branch name you want to not allow binary pushes
+to. Usually C<master>, can also be C<trunk> or whatever.
+
+=head2 hook.pre-receive-reject-binaries.max-per-commit-size-increase
+
+If a given commit adds files whose cumulative file size is above this
+we reject it. In bytes.
+
+=head2 hook.pre-receive-reject-binaries.commit-override-message
+
+If there actually is a good reason to go above the configured limits
+they can be overriden.
+
+To do this the commit message of any offending commit needs to be
+changed to include this string. Occurrences of C<{BYTES}> in the will
+be replaced by however many bytes are being added. E.g. this can be
+set to:
+
+    YES I WANT TO FOREVER INCREASE THE SIZE OF $whatever.git BY ADDING %BYTES% BYTES OF BINARY TO IT!
+
+If that string is present in the commit message we'll ignore that
+commit for the purposes of computing the size of the commit. To not
+allow any overrides just don't set this.
+
+=head2 hook.pre-receive-reject-binaries.support-contact
+
+A string we'll use when we reject the push as the support contact,
+e.g. an E-Mail address or Jabber channel.
+
+=head2 hook.pre-receive-reject-binaries.log-command
+
+An executable script that we'll pipe all our output into. Useful for
+e.g. spewing all output users see into a log.
+
+=head2 hook.pre-receive-reject-binaries.blocked-push-command
+
+A command we'll run whenever this hook blocks a push, it'll get all
+the output we emit piped into it. Useful for e.g. sending a mail
+whenever we have a blocked push.
+
+=head2 hook.pre-receive-reject-binaries.unblocked-push-command
+
+A command we'll run if we have a push that we would have rejected, but
+was unblocked through via the facility described in
+L</hook.pre-receive-reject-binaries.commit-override-message>. If
+that's not enabled we won't be calling this.
+
+=cut
+
+# Get our configuration from the Git repository
+my $config_master_branch_name;
+my $config_max_per_commit_size_increase;
+my $config_commit_override_message;
+my $config_support_contact;
+my $config_log_command;
+my $config_blocked_push_command;
+my $config_unblocked_push_command;
+{
+    my $config_variable;
+
+    $config_variable = 'hook.pre-receive-reject-binaries.master-branch-name';
+    chomp($config_master_branch_name = qx[git config $config_variable]);
+    error("PANIC: $0 has not had <$config_variable> configured for this repository. That configuration is mandatory, see the documentation for the hook") unless $config_master_branch_name;
+
+    $config_variable = 'hook.pre-receive-reject-binaries.max-per-commit-size-increase';
+    chomp($config_max_per_commit_size_increase = qx[git config $config_variable]);
+    error("PANIC: $0 has not had <$config_variable> configured for this repository. That configuration is mandatory, see the documentation for the hook") unless $config_master_branch_name;
+
+    chomp($config_commit_override_message = qx[git config hook.pre-receive-reject-binaries.commit-override-message]);
+    chomp($config_support_contact = qx[git config hook.pre-receive-reject-binaries.support-contact]);
+    chomp($config_log_command = qx[git config hook.pre-receive-reject-binaries.log-command]);
+    chomp($config_blocked_push_command = qx[git config hook.pre-receive-reject-binaries.blocked-push-command]);
+    chomp($config_unblocked_push_command = qx[git config hook.pre-receive-reject-binaries.unblocked-push-command]);
+}
+
+# We'll include this state in any detailed error messages
+my (@updates, @updates_to_main_branch, $update);
+
+while (my $line = <STDIN>) {
+      chomp $line;
+      my ($from, $to, $raw_ref) = split / /, $line;
+      error("PANIC: We should get '<old-value> SP <new-value> SP <ref-name> LF' here. Got '$line' instead")
+          unless $from and $to and $raw_ref;
+
+      my ($ref_type, $ref_name)= $raw_ref =~ m[^refs/(heads|tags)/(.+)$]s
+          or error("PANIC: Unable to parse the ref name <$raw_ref>");
+
+      push @updates => {
+          from     => $from,
+          to       => $to,
+          raw_ref  => $raw_ref,
+          ref_type => $ref_type,
+          ref_name => $ref_name,
+      };
+}
+
+@updates_to_main_branch = grep { $_->{ref_name} eq $config_master_branch_name } @updates;
+# No updates to the branch we care about? Cool.
+_exit(0, 1) unless @updates_to_main_branch;
+
+# There's only one!
+$update = $updates_to_main_branch[0];
+
+# If you push to a new branch we'll just validate the entire history
+# of your push.
+my $null_ref = '0000000000000000000000000000000000000000';
+my $over_nine_thousand = '9001,9001';
+if ($update->{to} eq $null_ref) {
+    message("You're deleting the <$config_master_branch_name> branch (pushing to <$null_ref>). Allright then, not our job to stop you") if $debug;
+    _exit(0, 1);
+} elsif ($update->{from} eq $null_ref) {
+    message("You are doing an initial push to <$config_master_branch_name> (pushing from <$null_ref>). Validating all the history") if $debug;
+    chomp(my @log = qx[git log --pretty=format:%H -M100% --stat=$over_nine_thousand $update->{to}]);
+    $update->{log} = \@log;
+    chomp(my @rev_list = qx[git rev-list $update->{to}]);
+    $update->{rev_list} = \@rev_list;
+} else {
+    chomp(my @log = qx[git log --pretty=format:%H -M100% --stat=$over_nine_thousand $config_master_branch_name..$update->{to}]);
+    $update->{log} = \@log;
+    chomp(my @rev_list = qx[git rev-list $config_master_branch_name..$update->{to}]);
+    $update->{rev_list} = \@rev_list;
+}
+@{$update->{rev_list_hash}}{@{$update->{rev_list}}} = ();
+
+# Parse out the log for the push we're getting. State machine galore.
+my $current_commit;
+my $seen_commits = 0;
+LINE: for my $line (@{$update->{log}}) {
+    if (!$current_commit) {
+        error("PANIC: The first line we get should be a commit hash, it's <$line>") unless exists $update->{rev_list_hash}->{$line};
+        $current_commit = $line;
+        $seen_commits++;
+        next LINE;
+    } elsif (exists $update->{rev_list_hash}->{$line}) {
+        $current_commit = $line;
+        $seen_commits++;
+        next LINE;
+    }
+
+    # The empty line at the end of log messages.
+    next LINE if $line eq '';
+    # Skip "X files changed, Y insertions...", and also non-binary
+    # changes.
+    next LINE unless $line =~ /\| Bin /;
+
+    # Match the filename and the size change, try to deal with files
+    # with whitespace in their name by using the greedy match. Why not
+    # use --numstat? Because it doesn't tell us about the size of
+    # binary files!
+    my ($file, $from_bytes, $to_bytes) = $line =~ /^ (.*?)\| Bin ([0-9]+) -> ([0-9]+) bytes$/s;
+    $file =~ s/\s*$//; # Remove whitespace leading up to the "| Bin"
+    $line =~ s/^ //;   # All --stat lines are prefixed by whitespace
+
+    push @{ $update->{parsed_binary_log}->{$current_commit} } => {
+        file => $file,
+        from => $from_bytes,
+        to   => $to_bytes,
+    };
+}
+error(" PANIC: We should have seen <" . @{$update->{rev_list}} . "> commits in the log we just parsed, but saw <$seen_commits> instead. Our parser is broken!")
+    unless @{$update->{rev_list}} == $seen_commits;
+
+unless (exists $update->{parsed_binary_log}) {
+    # We have no binary files in this push, just let the whole thing
+    # through, nothing more to do here.
+    message("Parsed <" . @{$update->{rev_list}} . "> commits in this push and found no binary files. Letting it through") if $debug;
+    exit 0;
+}
+
+# Figure out which commits are naughty, and which are nice.
+for my $parsed_commit (keys %{$update->{parsed_binary_log}}) {
+    my $commit_size = 0;
+    PARSED_FILE: for my $parsed_file (@{$update->{parsed_binary_log}->{$parsed_commit}}) {
+        my ($file, $from, $to) = @$parsed_file{qw(file from to)};
+
+        # It's very important that we don't block the deletions of big
+        # files, they'll still be in the history but at least they
+        # won't be in the checked out tree anymore.
+        if ($to == 0) {
+            message("Skipping <$parsed_commit>'s <$file>. Was <$from> bytes but now deleted (or empty) at <$to> bytes") if $debug > 1;
+            next PARSED_FILE;
+        }
+
+        $commit_size += $to;
+    }
+
+    if ($commit_size > $config_max_per_commit_size_increase){
+        message("The commit <$parsed_commit>'s adds <$commit_size> bytes of binary data. This is above our limit of <$config_max_per_commit_size_increase>") if $debug > 1;
+        $update->{bad_commits}->{$parsed_commit} = $commit_size;
+    }
+}
+
+my $blocked_push;
+my $unblocked_push;
+if (exists $update->{bad_commits}) {
+    message(("=" x 79));
+    message("You are trying to push <$update->{from}..$update->{to}> to the <$config_master_branch_name> branch");
+    message("but have gone above the configured size quota for binary files.");
+    message("These are the commits that we found to contain more than <$config_max_per_commit_size_increase> bytes of binary additions:");
+    message(("=" x 79));
+
+    # We're looping through the rev-list so we'll emit the commits in
+    # the order that they're being pushed
+    my @bad_commit_messages;
+    COMMIT: for my $commit (reverse @{$update->{rev_list}}) {
+        next COMMIT unless my $added_n_bytes = $update->{bad_commits}->{$commit};
+        chomp(my $commit_message = qx[git show --no-abbrev-commit --stat $commit]);
+
+        my $exempted = '';
+        if ($config_commit_override_message) {
+            my $cp = $config_commit_override_message;
+            $cp =~ s/\{BYTES\}/$added_n_bytes/g;
+            if ($commit_message =~ /\Q$cp\E/) {
+                $update->{unblocked_commits}->{$commit} = undef;
+                $exempted = ', BUT exempted!';
+            }
+        }
+        $commit_message =~ s/^/(" " x 4)/meg;
+        $commit_message =~ s/\bcommit (.{40})/commit $1 (added $added_n_bytes bytes$exempted)/;
+
+        push @bad_commit_messages => $commit_message;
+    }
+    message(join(
+        "\n" . ("=" x 79) . "\n",
+        @bad_commit_messages,
+    ));
+    message(("=" x 79));
+    message("");
+
+    my $rejected = 1;
+    if (not exists $update->{unblocked_commits}) {
+        message("You've tried to push big binary data to this repository so we're rejecting your push,");
+        message("binary data does *NOT* belong in a Git repository intended for source control.");
+        message("Whatever you push to the <$config_master_branch_name> branch will *forever* live in *every* checkout of the repository!");
+        message("");
+        if ($config_support_contact) {
+            message("If you have questions about this please contact $config_support_contact,");
+            message("Make sure to paste the entire output of this push up to and including");
+            message("the 'git push' command you used.");
+            message("");
+        }
+        if ($config_commit_override_message) {
+            message("If for some reason you think this data is important enough to live in this repository");
+            message("by changing the commit message of offending commits to include the literal string:");
+            message("");
+            message("    '$config_commit_override_message' (without quotation marks)");
+            message("");
+            message("You need to change any occurrence of {BYTES} in that message to be the");
+            message("actual amount of bytes that commit is adding, we've computed that on a per-commit");
+            message("basis in the output above, look for '(added {BYTES} bytes)'.");
+            message("");
+        }
+    } elsif (exists $update->{unblocked_commits}) {
+        if (keys %{$update->{unblocked_commits}} < keys %{$update->{bad_commits}}) {
+            message("You've unblocked some commits to get past the filters for binary data");
+            message("but you still have bad commits. These are the commits you're unblocking:");
+            message("");
+            COMMIT: for my $commit (reverse @{$update->{rev_list}}) {
+                message("* $commit (adds $update->{bad_commits}->{$commit} bytes)") if exists $update->{unblocked_commits}->{$commit};
+            }
+            message("");
+            message("And these are the commits that still violate the binary size policy of this repository:");
+            message("");
+            COMMIT: for my $commit (reverse @{$update->{rev_list}}) {
+                message("* $commit (adds $update->{bad_commits}->{$commit} bytes)")
+                    if exists $update->{bad_commits}->{$commit} and not exists $update->{unblocked_commits}->{$commit};
+            }
+            message("");
+        } elsif (keys %{$update->{unblocked_commits}} == keys %{$update->{bad_commits}}) {
+            message("You've decided to unblock all of the commits we detected as bad through:");
+            message("");
+            COMMIT: for my $commit (reverse @{$update->{rev_list}}) {
+                message("* $commit (adds $update->{bad_commits}->{$commit} bytes)") if exists $update->{unblocked_commits}->{$commit};
+            }
+            message("");
+            message("This push will be reported");
+            $unblocked_push = 1;
+            $rejected = 0;
+        }
+    }
+
+    if ($rejected) {
+        message("This push is being rejected. Please don't add binary data to this repository!");
+        $blocked_push = 1;
+        _exit(1);
+    }
+}
+
+_exit(0);
+
+my @messages;
+
+sub _exit {
+    my ($code, $really) = @_;
+
+    my $pre_exit = sub {
+        # We're not checking exit values here because we don't want
+        # the push to fail due to some log hook failing
+        if ($config_log_command and @messages) {
+            open my $fh, "|-", $config_log_command or warn "Couldn't open($config_log_command): <$!>";
+            print $fh $_, "\n" for @messages;
+            close $fh or warn "Couldn't close($config_log_command): <$!>";
+        }
+
+        if ($config_blocked_push_command and $blocked_push) {
+            open my $fh, "|-", $config_blocked_push_command or warn "Couldn't open($config_blocked_push_command): <$!>";
+            print $fh $_, "\n" for @messages;
+            close $fh or warn "Couldn't close($config_blocked_push_command): <$!>";
+        }
+
+        if ($config_unblocked_push_command and $unblocked_push) {
+            open my $fh, "|-", $config_unblocked_push_command or warn "Couldn't open($config_unblocked_push_command): <$!>";
+            print $fh $_, "\n" for @messages;
+            close $fh or warn "Couldn't close($config_unblocked_push_command): <$!>";
+        }
+
+        return;
+    };
+
+    if (!$really and !$code and $always_fail) {
+        message("We would have exited successfully with <$code> but we're set to always fail for testing purposes");
+        $pre_exit->();
+        exit 1;
+    }
+
+    if ($code and $dry_run) {
+        message("We would have rejected this push but we're set to --dry-run=1 for testing purposes");
+        $pre_exit->();
+        exit 0;
+    }
+
+
+    $pre_exit->();
+    exit $code;
+}
+
+sub message {
+    my ($what) = @_;
+
+    $what =~ s/^/$NAME: /mg;
+    $what =~ s/ $//mg;
+
+    say STDERR $what;
+    push @messages => $what;
+
+    return;
+}
+
+sub error {
+    my ($what) = @_;
+
+    $what =~ s/^/$NAME: /mg;
+    $what =~ s/ $//mg;
+
+    message("ERROR: $what");
+    _exit(1);
+}
