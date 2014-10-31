@@ -291,7 +291,7 @@ unless (exists $update->{parsed_binary_log}) {
     # We have no binary files in this push, just let the whole thing
     # through, nothing more to do here.
     message(DEBUG, "Parsed <" . @{$update->{rev_list}} . "> commits in this push and found no binary files. Letting it through");
-    exit 0;
+    _exit(0);
 }
 
 # Figure out which commits are naughty, and which are nice.
