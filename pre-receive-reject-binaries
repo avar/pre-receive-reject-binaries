@@ -514,15 +514,3 @@ sub error {
     message(NOTICE, "ERROR: $what");
     _exit(1);
 }
-
-__END__
-my (%LOGLEVELS, %LOGLEVELS_REVERSE);
-BEGIN {
-    %LOGLEVELS = (
-        NOTICE => 1,
-        DEBUG  => 2,
-        TRACE  => 3,
-    );
-    %LOGLEVELS_REVERSE = reverse %LOGLEVELS;
-}
-use constant \%LOGLEVELS;
