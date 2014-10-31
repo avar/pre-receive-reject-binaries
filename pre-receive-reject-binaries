@@ -369,8 +369,7 @@ if (exists $update->{bad_commits}) {
         if ($config_commit_override_message) {
             message(NOTICE, "If for some reason you think this data is important enough to live in this repository");
             message(NOTICE, "you can force your push to be accepted by changing the commit message of offending");
-            message(NOTICE, "commits by changing the commit message of offending commits to include this literal string,");
-            message(NOTICE, "without quotation marks:");
+            message(NOTICE, "commits to include this literal string, without quotation marks:");
             message(NOTICE, "");
             message(NOTICE, "    '$config_commit_override_message'");
             message(NOTICE, "");
