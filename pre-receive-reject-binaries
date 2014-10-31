@@ -1,8 +1,6 @@
 #!/usr/bin/env perl
-use v5.10.0;
 use strict;
 use warnings;
-use Data::Dumper;
 use Getopt::Long qw(GetOptions);
 
 GetOptions(
@@ -499,7 +497,7 @@ sub message {
     $what =~ s/ $//mg;
 
     if (my $filtered_what = message_filter($message_log_level, $OUTPUT_LOG_LEVEL, $what)) {
-        say STDERR $filtered_what;
+        print STDERR $filtered_what, "\n";
     }
 
     push @messages => [$message_log_level => $what];
