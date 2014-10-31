@@ -241,7 +241,7 @@ if ($update->{to} eq $null_ref) {
     chomp(my @rev_list = qx[git rev-list $update->{to}]);
     $update->{rev_list} = \@rev_list;
 } else {
-    message(DEBUG, "You are doing a to <$config_master_branch_name> from <$update->{from}> to <$update->{to}>");
+    message(DEBUG, "You are doing a push to <$config_master_branch_name> from <$update->{from}> to <$update->{to}>");
     chomp(my @log = qx[git log --pretty=format:%H -M100% --stat=$over_nine_thousand $update->{from}..$update->{to}]);
     $update->{log} = \@log;
     chomp(my @rev_list = qx[git rev-list $update->{from}..$update->{to}]);
