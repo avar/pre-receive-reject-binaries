@@ -22,8 +22,9 @@ SYNOPSIS
 
 DESCRIPTION
     This is a Git hook meant to be set up as a "pre-receive" hook (see
-    githooks(7)) that'll reject the addition of binary data to a repository,
-    either all binary additions if they go above a given size.
+    githooks(5)) that'll reject the addition of binary data to a repository,
+    either all binary additions if they on a per-commit basis go above a
+    given size.
 
     The general strategy of this hook is that when we get a push for a given
     "master" branch we'll do a "log --stat" of "$branch..$to" and find all
@@ -31,13 +32,26 @@ DESCRIPTION
 
     Each commit in the push is then given a quota of how much binary data is
     allowed, if any commit goes above that quota the entire push is
-    rejected, depending on the configuration (see below) the user is allowed
+    rejected. Depending on the configuration (see below) the user is allowed
     to force the push to go through by amending the commit message to
     include some string saying they forced it through.
 
-    To entirely reject binary pushes the size limit can be set to 0, but you
-    can also allow some amount of binary data in the repository, e.g. to
-    allow committing small icons but not giant images.
+    To entirely reject binary pushes you can set the size limit to 0 and
+    don't define an override message to allow users to push those changes
+    manually.
+
+    You can also allow some amount of binary data in the repository
+    per-commit, e.g. to allow committing small icons but not giant images.
+
+    Of course someone could be clever and commit a bunch of huge
+    Base64-encoded data that wouldn't be detected by Git as binary, or
+    manually split up huge binary data into multiple commits, each of whom
+    don't go above the configured limit.
+
+    This hook is not meant to stop a dedicated attacker from enlarging your
+    Git history, it's meant to stop someone who doesn't know better ("what
+    do you mean people have to download my binary data on every checkout,
+    forever?!") from accidentally messing up the history.
 
     We only care about updates to the "master" branch for two reasons, one
     is that if you're e.g. doing some temporary work and committing some
@@ -61,8 +75,8 @@ DESCRIPTION
 
 INSTALLATION
     Our only dependencies are a working perl interpreter. We only depend on
-    modules that have shipped with perl itself forever, so we should Just
-    Work on any *nix-like OS that has perl installed.
+    modules that have shipped with perl itself forever, so this hook should
+    just work out of the box on any *nix-like OS that has perl installed.
 
     To enable it for a given bare repository you want to push to just create
     a hook/pre-receive with something like:
@@ -70,9 +84,9 @@ INSTALLATION
         #!/bin/sh
         /path/to/where/you/cloned-pre-receive-reject-binaries/pre-receive-reject-binaries --dry-run=0
 
-    See "CONFIGURATION" below for how to configure it. We just shell out to
-    "git config" so you can enable this configuration per-repository, or
-    globally (via e.g. /etc/gitconfig) or any combination of the two.
+    See "CONFIGURATION" below for how to configure it. We shell out to "git
+    config" so you can enable this configuration per-repository, or globally
+    (via e.g. /etc/gitconfig) or any combination of the two.
 
 CONFIGURATION
     Here's an example of what a typical configuration for this hook might
@@ -104,7 +118,7 @@ CONFIGURATION
 
   hook.pre-receive-reject-binaries.commit-override-message
     If there actually is a good reason to go above the configured limits
-    they can be overriden.
+    they can be overridden.
 
     To do this the commit message of any offending commit needs to be
     changed to include this string. Occurrences of "{BYTES}" in the will be
