@@ -135,7 +135,7 @@ we reject it. In bytes.
 =head2 hook.pre-receive-reject-binaries.commit-override-message
 
 If there actually is a good reason to go above the configured limits
-they can be overriden.
+they can be overridden.
 
 To do this the commit message of any offending commit needs to be
 changed to include this string. Occurrences of C<{BYTES}> in the will
