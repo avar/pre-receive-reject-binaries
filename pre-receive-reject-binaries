@@ -82,6 +82,23 @@ have to at least be optional.
 We do handle the initial push to the "master" branch itself by just
 validating the entire history being pushed.
 
+=head1 INSTALLATION
+
+Our only dependencies are a working perl interpreter. We only depend
+on modules that have shipped with perl itself forever, so we should
+Just Work on any *nix-like OS that has perl installed.
+
+To enable it for a given bare repository you want to push to just
+create a F<hook/pre-receive> with something like:
+
+    #!/bin/sh
+    /path/to/where/you/cloned-pre-receive-reject-binaries/pre-receive-reject-binaries --dry-run=0
+
+See L</CONFIGURATION> below for how to configure it. We just shell out
+to C<git config> so you can enable this configuration per-repository,
+or globally (via e.g. F</etc/gitconfig>) or any combination of the
+two.
+
 =head1 CONFIGURATION
 
 Here's an example of what a typical configuration for this hook might
