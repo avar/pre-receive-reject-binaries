@@ -156,6 +156,17 @@ was unblocked through via the facility described in
 L</hook.pre-receive-reject-binaries.commit-override-message>. If
 that's not enabled we won't be calling this.
 
+=head1 AUTHOR
+
+Ævar Arnfjörð Bjarmason <avar@cpan.org>
+
+=head1 COPYRIGHT AND LICENSE
+
+This software is copyright (c) 2014 by Ævar Arnfjörð Bjarmason <avar@cpan.org>
+
+This is free software; you can redistribute it and/or modify it under
+the same terms as the Perl 5 programming language system itself.
+
 =cut
 
 # Can't believe I'm implementing my own logging framework...
