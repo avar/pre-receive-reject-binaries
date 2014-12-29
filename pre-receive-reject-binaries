@@ -47,7 +47,7 @@ pre-receive-reject-binaries - A configurable Git hook to intelligently reject bi
 =head1 DESCRIPTION
 
 This is a Git hook meant to be set up as a C<pre-receive> hook (see
-C<githooks(7)>) that'll reject the addition of binary data to a
+C<githooks(5)>) that'll reject the addition of binary data to a
 repository, either all binary additions if they go above a given size.
 
 The general strategy of this hook is that when we get a push for a
