@@ -52,8 +52,27 @@ DESCRIPTION
     deal with it. Want the hook to do something smart about that? Patches
     welcome.
 
+    Keep in mind though that this is deliberately written to be fast on
+    humongous repositories, so anything that breaks that promise would have
+    to at least be optional.
+
     We do handle the initial push to the "master" branch itself by just
     validating the entire history being pushed.
+
+INSTALLATION
+    Our only dependencies are a working perl interpreter. We only depend on
+    modules that have shipped with perl itself forever, so we should Just
+    Work on any *nix-like OS that has perl installed.
+
+    To enable it for a given bare repository you want to push to just create
+    a hook/pre-receive with something like:
+
+        #!/bin/sh
+        /path/to/where/you/cloned-pre-receive-reject-binaries/pre-receive-reject-binaries --dry-run=0
+
+    See "CONFIGURATION" below for how to configure it. We just shell out to
+    "git config" so you can enable this configuration per-repository, or
+    globally (via e.g. /etc/gitconfig) or any combination of the two.
 
 CONFIGURATION
     Here's an example of what a typical configuration for this hook might
@@ -118,4 +137,14 @@ CONFIGURATION
     was unblocked through via the facility described in
     "hook.pre-receive-reject-binaries.commit-override-message". If that's
     not enabled we won't be calling this.
+
+AUTHOR
+    Ævar Arnfjörð Bjarmason <avar@cpan.org>
+
+COPYRIGHT AND LICENSE
+    This software is copyright (c) 2014 by Ævar Arnfjörð Bjarmason
+    <avar@cpan.org>
+
+    This is free software; you can redistribute it and/or modify it under
+    the same terms as the Perl 5 programming language system itself.
 
