@@ -75,6 +75,10 @@ the "master" branch? do we validate the entire history? Easier to just
 not deal with it. Want the hook to do something smart about that?
 Patches welcome.
 
+Keep in mind though that this is deliberately written to be fast on
+humongous repositories, so anything that breaks that promise would
+have to at least be optional.
+
 We do handle the initial push to the "master" branch itself by just
 validating the entire history being pushed.
 
