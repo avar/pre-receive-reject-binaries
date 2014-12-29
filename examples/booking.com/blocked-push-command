@@ -1,0 +1,31 @@
+#!/usr/bin/perl
+use v5.14.2;
+use strict;
+use warnings;
+use Cwd qw(getcwd);
+use File::Basename qw(basename);
+
+my $repository = basename(getcwd());
+
+my ($loginname) = getpwuid($<);
+chomp(my @ldap = qx[ldapsearch -x uid=$loginname mail gecos|grep -e ^mail: -e ^gecos:]);
+my %ldap;
+for my $line (@ldap) {
+    my ($key, $value) = $line =~ /^([^:]+): (.+)$/s;
+    $ldap{$key} = $value;
+}
+
+open(my $mail, '|-', "/usr/sbin/sendmail -t") or warn "Couldn't launch /usr/sbin/sendmail";
+print $mail "Subject: [pre-receive-reject-binaries] Blocked a binary push to $repository\n";
+print $mail "Reply-To: git.pushes\@lists.example.com\n";
+print $mail "Content-type: text/plain; charset=UTF-8\n";
+print $mail "To: git.pushes\@lists.example.com\n";
+print $mail "Cc: $ldap{mail}\n";
+print $mail "\n";
+print $mail "The pre-receive-reject-binaries hook blocked a binary push to $repository\n";
+print $mail "initiated by $ldap{gecos}.\n\n";
+print $mail "Here's a copy of the output we emitted from the git hook,\n";
+print $mail "which explains why we blocked the push:\n\n";
+print $mail $_ for <STDIN>;
+
+close($mail) or warn "Couldn't close /usr/sbin/sendmail";

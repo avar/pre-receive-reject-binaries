@@ -19,6 +19,8 @@ if ($help or $man) {
 
 my $NAME = 'pre-receive-reject-binaries';
 
+=encoding utf8
+
 =head1 NAME
 
 pre-receive-reject-binaries - A configurable Git hook to intelligently reject binary pushes
@@ -113,6 +115,10 @@ look like:
         log-command-level = TRACE
         blocked-push-command = /gitroot/contrib/hooks/pre-receive-reject-binaries/blocked-push-command
         unblocked-push-command = /gitroot/contrib/hooks/pre-receive-reject-binaries/unblocked-push-command
+
+For example commands for the C<*-command> switches see the see the
+F<examples/> directory in the F<pre-receive-reject-binaries> Git
+distribution for an example of what the author uses this hook for.
 
 Detailed documentation about each option below:
 

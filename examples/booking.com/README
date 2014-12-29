@@ -1,0 +1,6 @@
+These are slightly altered versions of the hooks I wrote for
+Booking.com where as of writing this we use this for our main Git
+repository.
+
+These are pretty basic examples, but show how you can log & send
+E-Mail via the hooks.
