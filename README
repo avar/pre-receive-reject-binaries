@@ -102,9 +102,9 @@ CONFIGURATION
             blocked-push-command = /gitroot/contrib/hooks/pre-receive-reject-binaries/blocked-push-command
             unblocked-push-command = /gitroot/contrib/hooks/pre-receive-reject-binaries/unblocked-push-command
 
-    For example commands for the "*-command" switches see the see the
-    examples/ directory in the pre-receive-reject-binaries Git distribution
-    for an example of what the author uses this hook for.
+    For example commands for the "*-command" switches see the examples/
+    directory in the pre-receive-reject-binaries Git distribution for an
+    example of what the author uses this hook for.
 
     Detailed documentation about each option below:
 

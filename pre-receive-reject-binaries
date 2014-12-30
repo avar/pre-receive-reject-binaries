@@ -130,7 +130,7 @@ look like:
         blocked-push-command = /gitroot/contrib/hooks/pre-receive-reject-binaries/blocked-push-command
         unblocked-push-command = /gitroot/contrib/hooks/pre-receive-reject-binaries/unblocked-push-command
 
-For example commands for the C<*-command> switches see the see the
+For example commands for the C<*-command> switches see the
 F<examples/> directory in the F<pre-receive-reject-binaries> Git
 distribution for an example of what the author uses this hook for.
 
